@@ -1,69 +1,713 @@
-<!-- วางในช่อง HTML ของ CodePen (ไม่ต้องใส่ <html> <head> <body>) -->
-<div class="app">
-  <header>
-    <h1>📅 Exam Scheduler</h1>
-    <p>จัดตารางสอบไม่ชนด้วย <b>Graph Coloring</b> และ <b>Sets</b> · Engineering Mathematics</p>
-  </header>
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IE211 - Professional Exam Scheduler Dashboard</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Vis.js for Network Graph -->
+    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
 
-  <section class="card">
-    <h2>1. เพิ่มวิชาและรายชื่อนักศึกษา</h2>
-    <label class="lbl" for="cname">ชื่อวิชา</label>
-    <input id="cname" type="text" placeholder="เช่น MATH101" autocomplete="off">
-    <label class="lbl" for="cstudents">รายชื่อนักศึกษาที่ลงทะเบียนวิชานี้</label>
-    <textarea id="cstudents" rows="3" spellcheck="false" placeholder="พิมพ์ชื่อหรือรหัสนักศึกษา คั่นด้วยเครื่องหมายจุลภาค (,) หรือขึ้นบรรทัดใหม่ เช่น Anan, Bella, Chai"></textarea>
-    <div class="bar">
-      <button id="add">+ เพิ่มวิชา</button>
-      <button id="sample" class="ghost">โหลดข้อมูลตัวอย่าง</button>
-      <button id="clear" class="ghost">ล้างทั้งหมด</button>
-    </div>
-    <div id="errors" class="errors" hidden></div>
-  </section>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Sarabun', 'Inter', 'sans-serif'],
+                        mono: ['Inter', 'monospace'],
+                    },
+                    colors: {
+                        brand: { 50: '#f0f9ff', 100: '#e0f2fe', 500: '#0ea5e9', 600: '#0284c7', 900: '#0c4a6e' }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { background-color: #f8fafc; }
+        .glass-panel { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); }
+        .vis-network:focus { outline: none; }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
+</head>
+<body class="text-slate-800 antialiased min-h-screen flex flex-col">
 
-  <section class="card">
-    <h2>2. วิชาที่เพิ่มแล้ว <span id="count" class="count"></span></h2>
-    <div id="list"></div>
-    <div class="bar run-bar">
-      <select id="algo" aria-label="วิธีจัดตาราง">
-        <option value="wp">Welsh–Powell</option>
-        <option value="dsatur">DSATUR</option>
-      </select>
-      <button id="run" class="big">จัดตารางสอบ</button>
-    </div>
-  </section>
+    <!-- Header -->
+    <header class="bg-slate-900 text-white shadow-lg sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 bg-brand-500 rounded-lg flex items-center justify-center shadow-lg">
+                    <i class="fa-solid fa-project-diagram text-xl"></i>
+                </div>
+                <div>
+                    <h1 class="text-lg font-bold leading-tight tracking-wide">IE211 Exam Scheduler</h1>
+                    <p class="text-[11px] text-slate-400 font-mono">Graph Coloring & Set Theory Implementation</p>
+                </div>
+            </div>
+            <div class="flex gap-2">
+                <div class="bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-700 flex items-center gap-2">
+                    <label class="text-xs text-slate-400 font-medium">Algorithm:</label>
+                    <select id="algo-select" onchange="runEngine()" class="bg-transparent text-sm font-semibold text-white outline-none cursor-pointer">
+                        <option value="welsh-powell">Welsh-Powell</option>
+                        <option value="dsatur">DSATUR</option>
+                    </select>
+                </div>
+                <button onclick="loadSlideData()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-1.5 rounded-lg text-sm font-medium transition shadow-md flex items-center gap-2">
+                    <i class="fa-solid fa-chalkboard-user"></i> Load Slide Data
+                </button>
+            </div>
+        </div>
+    </header>
 
-  <div id="results" hidden>
-    <section class="card">
-      <h2>3. ผลลัพธ์</h2>
-      <div id="stats" class="stats"></div>
-      <p id="verdict" class="verdict"></p>
-    </section>
+    <main class="flex-grow max-w-7xl w-full mx-auto px-4 py-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        
+        <!-- LEFT: Data Input -->
+        <div class="lg:col-span-4 flex flex-col gap-5">
+            <!-- Form -->
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div class="bg-slate-50 px-4 py-3 border-b border-slate-200">
+                    <h2 class="font-bold text-slate-800"><i class="fa-solid fa-plus-circle text-brand-600 mr-2"></i>จัดการรายวิชา (Courses)</h2>
+                </div>
+                <form id="course-form" onsubmit="addCourse(event)" class="p-4 space-y-3">
+                    <div class="grid grid-cols-3 gap-2">
+                        <div class="col-span-1">
+                            <label class="block text-xs font-semibold text-slate-600 mb-1">รหัสวิชา</label>
+                            <input type="text" id="in-code" required class="w-full px-2.5 py-1.5 text-sm border rounded-lg focus:ring-2 focus:ring-brand-500 outline-none uppercase font-mono" placeholder="MATH101">
+                        </div>
+                        <div class="col-span-2">
+                            <label class="block text-xs font-semibold text-slate-600 mb-1">ชื่อวิชา</label>
+                            <input type="text" id="in-name" class="w-full px-2.5 py-1.5 text-sm border rounded-lg focus:ring-2 focus:ring-brand-500 outline-none" placeholder="Calculus">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">รายชื่อนักศึกษา (คั่นด้วยจุลภาค)</label>
+                        <textarea id="in-students" rows="3" required class="w-full px-2.5 py-1.5 text-sm border rounded-lg focus:ring-2 focus:ring-brand-500 outline-none" placeholder="Anan, Ink, Lek, Mali"></textarea>
+                    </div>
+                    <button type="submit" class="w-full bg-brand-600 hover:bg-brand-700 text-white font-medium py-2 rounded-lg text-sm transition">
+                        บันทึกรายวิชา
+                    </button>
+                </form>
+            </div>
 
-    <div class="grid">
-      <section class="card">
-        <h2>กราฟความขัดแย้ง</h2>
-        <p class="hint">โหนด = วิชา · เส้น = มีนักศึกษาร่วมกัน · สี = ช่วงสอบ (วางเมาส์บนเส้นเพื่อดูรายชื่อ)</p>
-        <svg id="graph" viewBox="0 0 480 480" role="img" aria-label="conflict graph"></svg>
-      </section>
-      <section class="card">
-        <h2>ตารางสอบ</h2>
-        <div id="schedule"></div>
-      </section>
-    </div>
+            <!-- Course List -->
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-[400px]">
+                <div class="bg-slate-50 px-4 py-3 border-b border-slate-200 flex justify-between items-center">
+                    <h2 class="font-bold text-slate-800 text-sm"><i class="fa-solid fa-list text-slate-500 mr-2"></i>รายวิชาในระบบ (<span id="course-count">0</span>)</h2>
+                    <button onclick="clearData()" class="text-xs text-rose-600 hover:underline">ล้างทั้งหมด</button>
+                </div>
+                <div id="course-list" class="flex-grow overflow-y-auto p-2 space-y-2">
+                    <!-- List items generated by JS -->
+                </div>
+            </div>
+        </div>
 
-    <section class="card">
-      <h2>เมทริกซ์ขนาดของเซตตัดกัน |Cᵢ ∩ Cⱼ|</h2>
-      <p class="hint">ตัวเลขในช่อง = จำนวนนักศึกษาที่ลงทะเบียนทั้งสองวิชา (เส้นทแยง = จำนวนนักศึกษาของวิชานั้น)</p>
-      <div id="matrix" class="scroll"></div>
-    </section>
-  </div>
+        <!-- RIGHT: Dashboards & Analysis -->
+        <div class="lg:col-span-8 flex flex-col gap-5">
+            
+            <!-- Dashboard Tabs -->
+            <div class="bg-white p-1 rounded-xl shadow-sm border border-slate-200 flex space-x-1">
+                <button onclick="switchTab('schedule')" id="tab-schedule" class="tab-btn flex-1 py-2 text-sm font-semibold rounded-lg bg-slate-900 text-white transition">Final Schedule</button>
+                <button onclick="switchTab('sets')" id="tab-sets" class="tab-btn flex-1 py-2 text-sm font-semibold rounded-lg text-slate-600 hover:bg-slate-100 transition">Ev 1: Sets</button>
+                <button onclick="switchTab('graph')" id="tab-graph" class="tab-btn flex-1 py-2 text-sm font-semibold rounded-lg text-slate-600 hover:bg-slate-100 transition">Ev 2&3: Graph & Algo</button>
+                <button onclick="switchTab('bounds')" id="tab-bounds" class="tab-btn flex-1 py-2 text-sm font-semibold rounded-lg text-slate-600 hover:bg-slate-100 transition">Ev 4: Bounds</button>
+            </div>
 
-  <section class="card math">
-    <h2>คณิตศาสตร์เบื้องหลัง</h2>
-    <ul>
-      <li><b>Sets:</b> วิชา Cᵢ คือเซตของนักศึกษา วิชา i และ j สอบเวลาเดียวกันไม่ได้เมื่อ Cᵢ ∩ Cⱼ ≠ ∅</li>
-      <li><b>Graph:</b> G = (V, E) โดย V = วิชา และ (i, j) ∈ E ⇔ Cᵢ ∩ Cⱼ ≠ ∅</li>
-      <li><b>Graph Coloring:</b> ฟังก์ชัน f : V → {1, …, k} ที่ f(i) ≠ f(j) ทุกเส้น (i, j) ∈ E ค่า k น้อยที่สุดคือ χ(G)</li>
-      <li><b>ขอบเขต:</b> ω(G) ≤ χ(G) ≤ Δ(G) + 1 เมื่อ ω คือขนาด clique ใหญ่ที่สุด และ Δ คือดีกรีสูงสุด</li>
-    </ul>
-  </section>
-</div>
+            <!-- TAB: Final Schedule -->
+            <div id="view-schedule" class="view-panel space-y-4">
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+                    <h2 class="text-lg font-bold text-slate-800 mb-4 border-b pb-2 flex items-center justify-between">
+                        <span><i class="fa-regular fa-calendar-check text-emerald-500 mr-2"></i>ตารางสอบอัตโนมัติ</span>
+                        <span id="slot-summary-badge" class="text-xs font-semibold bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full">ใช้ 0 ช่วงสอบ</span>
+                    </h2>
+                    <div id="schedule-container" class="space-y-4"></div>
+                </div>
+            </div>
+
+            <!-- TAB: Evidence 1 (Sets) -->
+            <div id="view-sets" class="view-panel hidden space-y-4">
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div class="p-4 bg-slate-50 border-b border-slate-200">
+                        <h2 class="text-base font-bold text-slate-800"><i class="fa-solid fa-circle-nodes text-brand-500 mr-2"></i>Evidence 1: Sets Intersection</h2>
+                        <p class="text-xs text-slate-500 mt-1">วิเคราะห์คู่วิชาที่ชนกันจากการที่เซตของนักศึกษาตัดกัน (Intersection ไม่เท่ากับเซตว่าง)</p>
+                    </div>
+                    <div class="overflow-x-auto max-h-[500px]">
+                        <table class="w-full text-sm text-left">
+                            <thead class="text-xs text-slate-600 bg-slate-100 sticky top-0">
+                                <tr>
+                                    <th class="px-4 py-3">คู่วิชา (Course A - Course B)</th>
+                                    <th class="px-4 py-3">ผลการตัดกัน (Intersection)</th>
+                                    <th class="px-4 py-3 text-center">สถานะ (Conflict)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="sets-table-body" class="divide-y divide-slate-100">
+                                <!-- Generated by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB: Evidence 2 & 3 (Graph & Algorithm) -->
+            <div id="view-graph" class="view-panel hidden space-y-4">
+                <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                    <!-- Graph Network -->
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
+                        <div class="p-3 bg-slate-50 border-b border-slate-200">
+                            <h2 class="text-sm font-bold text-slate-800">Evidence 2: Conflict Graph</h2>
+                        </div>
+                        <div id="network-container" class="h-[350px] w-full bg-slate-900"></div>
+                    </div>
+
+                    <!-- Step-by-Step Table -->
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
+                        <div class="p-3 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+                            <h2 class="text-sm font-bold text-slate-800">Evidence 3: Algorithm Steps</h2>
+                            <span id="algo-label" class="text-[10px] font-mono bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded">Welsh-Powell</span>
+                        </div>
+                        <div class="overflow-y-auto max-h-[350px]">
+                            <table class="w-full text-[11px] text-left">
+                                <thead class="text-[10px] uppercase bg-slate-100 text-slate-500 sticky top-0">
+                                    <tr>
+                                        <th class="px-2 py-2">Order</th>
+                                        <th class="px-2 py-2">Subject</th>
+                                        <th class="px-2 py-2 text-center">Deg</th>
+                                        <th class="px-2 py-2">Neighbor Used Slots</th>
+                                        <th class="px-2 py-2 text-center font-bold">Assigned</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="algo-table-body" class="divide-y divide-slate-100 font-mono">
+                                    <!-- Generated by JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB: Evidence 4 (Bounds) -->
+            <div id="view-bounds" class="view-panel hidden space-y-4">
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+                    <h2 class="text-lg font-bold text-slate-800 border-b pb-3 mb-4"><i class="fa-solid fa-chart-line text-purple-500 mr-2"></i>Evidence 4: Graph Bounds Analysis</h2>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <!-- Lower Bound -->
+                        <div class="bg-rose-50 border border-rose-200 rounded-xl p-5 relative overflow-hidden">
+                            <i class="fa-solid fa-link absolute -bottom-4 -right-4 text-6xl text-rose-100 opacity-50"></i>
+                            <h3 class="text-sm font-bold text-rose-800 mb-1">ขอบเขตล่าง (Lower Bound)</h3>
+                            <div class="flex items-end gap-3 my-3">
+                                <span class="text-4xl font-black text-rose-600 font-mono">ω(G) = <span id="val-omega">0</span></span>
+                            </div>
+                            <p class="text-xs text-rose-700 leading-relaxed mt-2">
+                                <strong class="block mb-1">Maximum Clique:</strong>
+                                พบกลุ่มวิชาที่ชนกันเองครบทุกคู่ (Complete Subgraph) จำนวน <span id="val-omega-txt">0</span> วิชา ได้แก่ <br>
+                                <span id="clique-members" class="font-mono font-bold bg-white/50 px-1 rounded mt-1 inline-block">N/A</span><br>
+                                จึงต้องใช้ช่วงสอบ <strong class="underline">อย่างน้อยที่สุด</strong> <span id="val-omega-txt2">0</span> ช่วง
+                            </p>
+                        </div>
+
+                        <!-- Upper Bound -->
+                        <div class="bg-indigo-50 border border-indigo-200 rounded-xl p-5 relative overflow-hidden">
+                            <i class="fa-solid fa-circle-nodes absolute -bottom-4 -right-4 text-6xl text-indigo-100 opacity-50"></i>
+                            <h3 class="text-sm font-bold text-indigo-800 mb-1">ขอบเขตบน (Upper Bound)</h3>
+                            <div class="flex items-end gap-3 my-3">
+                                <span class="text-4xl font-black text-indigo-600 font-mono">Δ(G)+1 = <span id="val-delta">0</span></span>
+                            </div>
+                            <p class="text-xs text-indigo-700 leading-relaxed mt-2">
+                                <strong class="block mb-1">Maximum Degree:</strong>
+                                วิชาที่มีเส้นเชื่อม (Degree) มากที่สุดคือ <br>
+                                <span id="max-deg-member" class="font-mono font-bold bg-white/50 px-1 rounded mt-1 inline-block">N/A</span> ซึ่งมี Degree = <span id="val-max-deg">0</span><br>
+                                อัลกอริทึมทั่วไปจะใช้สีไม่เกิน Δ(G) + 1 ช่วงสอบ
+                            </p>
+                        </div>
+                    </div>
+                    
+                    <!-- Conclusion Banner -->
+                    <div class="mt-6 p-4 bg-slate-800 text-white rounded-xl shadow-inner text-sm flex items-start gap-4">
+                        <i class="fa-solid fa-check-double text-emerald-400 text-xl mt-0.5"></i>
+                        <div>
+                            <h4 class="font-bold text-emerald-400 mb-1">สรุปการพิสูจน์ (Conclusion)</h4>
+                            <p id="bounds-conclusion" class="text-slate-300">
+                                กรุณาเพิ่มข้อมูลเพื่อวิเคราะห์
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <script>
+        // ==========================================
+        // 1. STATE & DATA STRUCTURES
+        // ==========================================
+        let courses = [];
+        let adjacency = new Map(); // id -> Set of ids
+        let edges = [];
+        let slots = [];
+        let steps = []; // For Algo table
+        let network = null;
+
+        const SLOT_COLORS = [
+            { bg: '#ef4444', text: 'text-white', tailwind: 'bg-red-500' },     // Red
+            { bg: '#3b82f6', text: 'text-white', tailwind: 'bg-blue-500' },    // Blue
+            { bg: '#10b981', text: 'text-white', tailwind: 'bg-emerald-500' }, // Green
+            { bg: '#f59e0b', text: 'text-white', tailwind: 'bg-amber-500' },   // Amber
+            { bg: '#8b5cf6', text: 'text-white', tailwind: 'bg-violet-500' },  // Violet
+            { bg: '#ec4899', text: 'text-white', tailwind: 'bg-pink-500' },    // Pink
+            { bg: '#14b8a6', text: 'text-white', tailwind: 'bg-teal-500' }     // Teal
+        ];
+
+        // ==========================================
+        // 2. CORE LOGIC (Sets & Graph Prep)
+        // ==========================================
+        
+        function parseStudents(text) {
+            return Array.from(new Set(text.split(/[,]+/).map(s => s.trim()).filter(s => s !== '')));
+        }
+
+        function buildGraph() {
+            adjacency.clear();
+            edges = [];
+            courses.forEach(c => adjacency.set(c.id, new Set()));
+
+            for (let i = 0; i < courses.length; i++) {
+                for (let j = i + 1; j < courses.length; j++) {
+                    let A = courses[i];
+                    let B = courses[j];
+                    let intersection = A.students.filter(s => B.students.includes(s));
+                    
+                    if (intersection.length > 0) {
+                        adjacency.get(A.id).add(B.id);
+                        adjacency.get(B.id).add(A.id);
+                        edges.push({ source: A, target: B, overlap: intersection });
+                    }
+                }
+            }
+
+            // Calculate degrees
+            courses.forEach(c => {
+                c.degree = adjacency.get(c.id).size;
+                c.color = -1; // Reset color
+            });
+        }
+
+        // ==========================================
+        // 3. ALGORITHMS (Welsh-Powell & DSATUR)
+        // ==========================================
+        
+        function runWelshPowell() {
+            steps = [];
+            let sorted = [...courses].sort((a, b) => b.degree - a.degree || a.code.localeCompare(b.code));
+            
+            let color = 0;
+            let uncolored = sorted.length;
+
+            while (uncolored > 0) {
+                let coloredInThisRound = [];
+                for (let i = 0; i < sorted.length; i++) {
+                    let c = sorted[i];
+                    if (c.color !== -1) continue;
+
+                    let neighbors = Array.from(adjacency.get(c.id));
+                    let neighborColors = new Set(neighbors.map(nid => courses.find(x => x.id === nid).color).filter(col => col !== -1));
+                    
+                    // Check if neighbors have the current color
+                    let canColor = !coloredInThisRound.some(coloredNode => neighbors.includes(coloredNode.id));
+
+                    if (canColor) {
+                        c.color = color;
+                        coloredInThisRound.push(c);
+                        uncolored--;
+                        
+                        steps.push({
+                            order: steps.length + 1,
+                            code: c.code,
+                            degree: c.degree,
+                            neighborColors: Array.from(neighborColors).sort((a,b)=>a-b),
+                            assigned: color
+                        });
+                    }
+                }
+                color++;
+            }
+        }
+
+        function runDSATUR() {
+            steps = [];
+            // Init DSATUR specific props
+            courses.forEach(c => {
+                c.dsat = 0;
+                c.color = -1;
+            });
+
+            let uncolored = [...courses];
+
+            while (uncolored.length > 0) {
+                // Sort by DSAT desc, then Degree desc
+                uncolored.sort((a, b) => {
+                    if (b.dsat !== a.dsat) return b.dsat - a.dsat;
+                    return b.degree - a.degree;
+                });
+
+                let c = uncolored.shift();
+                
+                let neighbors = Array.from(adjacency.get(c.id));
+                let neighborColors = new Set(neighbors.map(nid => courses.find(x => x.id === nid).color).filter(col => col !== -1));
+                
+                // Find smallest available color
+                let color = 0;
+                while (neighborColors.has(color)) {
+                    color++;
+                }
+
+                c.color = color;
+                
+                steps.push({
+                    order: steps.length + 1,
+                    code: c.code,
+                    degree: `Dsat:${c.dsat}, Deg:${c.degree}`,
+                    neighborColors: Array.from(neighborColors).sort((a,b)=>a-b),
+                    assigned: color
+                });
+
+                // Update DSAT for uncolored neighbors
+                uncolored.forEach(u => {
+                    if (adjacency.get(c.id).has(u.id)) {
+                        let uNeighbors = Array.from(adjacency.get(u.id));
+                        let uColors = new Set(uNeighbors.map(nid => courses.find(x => x.id === nid).color).filter(col => col !== -1));
+                        u.dsat = uColors.size;
+                    }
+                });
+            }
+        }
+
+        // ==========================================
+        // 4. BOUNDS ANALYSIS (Clique Finding)
+        // ==========================================
+        
+        let globalMaxClique = [];
+        function bronKerbosch(R, P, X) {
+            if (P.length === 0 && X.length === 0) {
+                if (R.length > globalMaxClique.length) {
+                    globalMaxClique = [...R];
+                }
+                return;
+            }
+            let P_copy = [...P];
+            for (let v of P_copy) {
+                let neighbors = Array.from(adjacency.get(v));
+                bronKerbosch(
+                    [...R, v],
+                    P.filter(n => neighbors.includes(n)),
+                    X.filter(n => neighbors.includes(n))
+                );
+                P = P.filter(n => n !== v);
+                X.push(v);
+            }
+        }
+
+        function analyzeBounds() {
+            if (courses.length === 0) return { maxDegreeNode: null, maxDegree: 0, maxClique: [] };
+
+            let maxDegreeNode = courses.reduce((prev, curr) => (prev.degree > curr.degree) ? prev : curr);
+            
+            globalMaxClique = [];
+            bronKerbosch([], courses.map(c => c.id), []);
+            
+            let maxCliqueNodes = globalMaxClique.map(id => courses.find(c => c.id === id).code);
+
+            return { maxDegreeNode, maxDegree: maxDegreeNode.degree, maxClique: maxCliqueNodes };
+        }
+
+        // ==========================================
+        // 5. ENGINE RUNNER & RENDERERS
+        // ==========================================
+
+        function runEngine() {
+            if (courses.length === 0) {
+                clearDashboards();
+                return;
+            }
+
+            buildGraph();
+
+            const algo = document.getElementById('algo-select').value;
+            document.getElementById('algo-label').textContent = algo === 'welsh-powell' ? 'Welsh-Powell' : 'DSATUR Algorithm';
+
+            if (algo === 'welsh-powell') runWelshPowell();
+            else runDSATUR();
+
+            // Group slots
+            slots = [];
+            let maxSlot = Math.max(...courses.map(c => c.color));
+            for (let i = 0; i <= maxSlot; i++) {
+                slots.push(courses.filter(c => c.color === i).sort((a,b) => a.code.localeCompare(b.code)));
+            }
+
+            renderCourseList();
+            renderSchedule();
+            renderSetsTable();
+            renderAlgoTable();
+            renderBounds();
+            drawNetwork();
+        }
+
+        function renderCourseList() {
+            document.getElementById('course-count').textContent = courses.length;
+            const html = courses.map(c => `
+                <div class="p-3 bg-white border border-slate-100 rounded-lg shadow-sm flex justify-between items-center group hover:border-brand-300">
+                    <div>
+                        <div class="font-mono font-bold text-sm text-slate-800">${c.code}</div>
+                        <div class="text-[10px] text-slate-400 mt-1">${c.students.length} students</div>
+                    </div>
+                    <button onclick="deleteCourse('${c.id}')" class="text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition"><i class="fa-solid fa-trash"></i></button>
+                </div>
+            `).join('');
+            document.getElementById('course-list').innerHTML = html;
+        }
+
+        function renderSchedule() {
+            document.getElementById('slot-summary-badge').textContent = `ใช้ ${slots.length} ช่วงสอบ`;
+            const html = slots.map((group, idx) => {
+                const color = SLOT_COLORS[idx % SLOT_COLORS.length];
+                return `
+                <div class="border rounded-xl overflow-hidden shadow-sm">
+                    <div class="px-4 py-2 ${color.tailwind} text-white font-bold text-sm flex justify-between">
+                        <span>ช่วงสอบที่ ${idx + 1} (Slot ${idx + 1})</span>
+                        <span class="text-xs bg-black/20 px-2 py-0.5 rounded">${group.length} วิชา</span>
+                    </div>
+                    <div class="p-4 bg-slate-50 flex flex-wrap gap-3">
+                        ${group.map(c => `<div class="bg-white px-3 py-2 border rounded shadow-sm text-sm font-mono font-semibold">${c.code}</div>`).join('')}
+                    </div>
+                </div>
+                `;
+            }).join('');
+            document.getElementById('schedule-container').innerHTML = html || '<p class="text-slate-400 text-sm">No data to schedule</p>';
+        }
+
+        function renderSetsTable() {
+            if (courses.length < 2) {
+                document.getElementById('sets-table-body').innerHTML = `<tr><td colspan="3" class="px-4 py-8 text-center text-slate-400 text-xs">ต้องมีอย่างน้อย 2 วิชา</td></tr>`;
+                return;
+            }
+
+            // Create all pairs for the table to prove Evidence 1
+            let pairsHTML = '';
+            let conflictCount = 0;
+            
+            for (let i = 0; i < courses.length; i++) {
+                for (let j = i + 1; j < courses.length; j++) {
+                    let A = courses[i];
+                    let B = courses[j];
+                    let intersection = A.students.filter(s => B.students.includes(s));
+                    let isConflict = intersection.length > 0;
+                    if (isConflict) conflictCount++;
+
+                    pairsHTML += `
+                        <tr class="${isConflict ? 'bg-rose-50/50' : 'bg-white'} hover:bg-slate-50">
+                            <td class="px-4 py-2 font-mono font-semibold text-slate-700">${A.code} <span class="text-slate-400 mx-1">∩</span> ${B.code}</td>
+                            <td class="px-4 py-2 text-xs">
+                                ${isConflict ? `{ ${intersection.join(', ')} }` : '<span class="text-slate-400 italic">∅ (เซตว่าง)</span>'}
+                            </td>
+                            <td class="px-4 py-2 text-center">
+                                ${isConflict ? '<span class="px-2 py-1 bg-rose-100 text-rose-700 rounded text-[10px] font-bold">ชน (Conflict)</span>' 
+                                             : '<span class="px-2 py-1 bg-emerald-100 text-emerald-700 rounded text-[10px] font-bold">ไม่ชน (Safe)</span>'}
+                            </td>
+                        </tr>
+                    `;
+                }
+            }
+            document.getElementById('sets-table-body').innerHTML = pairsHTML;
+        }
+
+        function renderAlgoTable() {
+            const html = steps.map(s => {
+                const neighborText = s.neighborColors.length === 0 ? 'None' : `{ ${s.neighborColors.map(c => c+1).join(', ')} }`;
+                const assignedColorObj = SLOT_COLORS[s.assigned % SLOT_COLORS.length];
+                
+                return `
+                <tr class="hover:bg-slate-50">
+                    <td class="px-2 py-1.5 text-center text-slate-500">${s.order}</td>
+                    <td class="px-2 py-1.5 font-bold text-slate-800">${s.code}</td>
+                    <td class="px-2 py-1.5 text-center text-slate-500">${s.degree}</td>
+                    <td class="px-2 py-1.5 text-slate-500">${neighborText}</td>
+                    <td class="px-2 py-1.5 text-center">
+                        <span class="px-2 py-0.5 rounded text-[10px] font-bold ${assignedColorObj.tailwind} text-white">Slot ${s.assigned + 1}</span>
+                    </td>
+                </tr>
+                `;
+            }).join('');
+            document.getElementById('algo-table-body').innerHTML = html;
+        }
+
+        function renderBounds() {
+            const bounds = analyzeBounds();
+            const actualUsed = slots.length;
+            
+            document.getElementById('val-omega').textContent = bounds.maxClique.length;
+            document.getElementById('val-omega-txt').textContent = bounds.maxClique.length;
+            document.getElementById('val-omega-txt2').textContent = bounds.maxClique.length;
+            document.getElementById('clique-members').textContent = bounds.maxClique.length > 0 ? `{ ${bounds.maxClique.join(', ')} }` : 'N/A';
+            
+            let delta = bounds.maxDegree;
+            document.getElementById('val-delta').textContent = delta + 1;
+            document.getElementById('max-deg-member').textContent = bounds.maxDegreeNode ? bounds.maxDegreeNode.code : 'N/A';
+            document.getElementById('val-max-deg').textContent = delta;
+
+            let conclusion = document.getElementById('bounds-conclusion');
+            let isOptimal = actualUsed === bounds.maxClique.length;
+            
+            conclusion.innerHTML = `
+                จากสมการ <strong>ω(G) ≤ χ(G) ≤ Δ(G) + 1</strong><br>
+                จะได้ <strong>${bounds.maxClique.length} ≤ ${actualUsed} ≤ ${delta + 1}</strong> <br>
+                ผลการจัดตารางใช้ <strong>${actualUsed} ช่วงสอบ</strong> 
+                ${isOptimal ? '<span class="text-emerald-300 font-bold ml-1">(เป็นค่าที่น้อยที่สุดที่เป็นไปได้แล้ว Optimal!)</span>' : ''}
+            `;
+        }
+
+        function drawNetwork() {
+            if (courses.length === 0) return;
+            const container = document.getElementById('network-container');
+            
+            const nodes = new vis.DataSet(courses.map(c => {
+                const colorObj = SLOT_COLORS[c.color % SLOT_COLORS.length];
+                return {
+                    id: c.id,
+                    label: c.code,
+                    color: { background: colorObj.bg, border: 'white' },
+                    font: { color: 'white', face: 'Inter', bold: true },
+                    borderWidth: 2,
+                    shadow: true
+                };
+            }));
+
+            const edgeData = new vis.DataSet(edges.map(e => ({
+                from: e.source.id,
+                to: e.target.id,
+                color: { color: 'rgba(255,255,255,0.2)', highlight: '#fbbf24' },
+                width: 2
+            })));
+
+            const data = { nodes: nodes, edges: edgeData };
+            const options = {
+                physics: {
+                    barnesHut: { gravitationalConstant: -3000, springLength: 100 }
+                },
+                interaction: { hover: true, tooltipDelay: 200 }
+            };
+
+            if (network) network.destroy();
+            network = new vis.Network(container, data, options);
+        }
+
+        // ==========================================
+        // 6. UI INTERACTIONS & DATA LOADING
+        // ==========================================
+
+        function addCourse(e) {
+            e.preventDefault();
+            const code = document.getElementById('in-code').value.toUpperCase().trim();
+            const name = document.getElementById('in-name').value.trim();
+            const studentsRaw = document.getElementById('in-students').value;
+            
+            if (courses.some(c => c.code === code)) {
+                alert('รหัสวิชานี้มีอยู่แล้ว');
+                return;
+            }
+
+            courses.push({
+                id: 'C_' + Date.now(),
+                code: code,
+                name: name,
+                students: parseStudents(studentsRaw)
+            });
+
+            document.getElementById('course-form').reset();
+            document.getElementById('in-code').focus();
+            runEngine();
+        }
+
+        function deleteCourse(id) {
+            courses = courses.filter(c => c.id !== id);
+            runEngine();
+        }
+
+        function clearData() {
+            courses = [];
+            runEngine();
+        }
+
+        function clearDashboards() {
+            document.getElementById('course-list').innerHTML = '';
+            document.getElementById('course-count').textContent = '0';
+            document.getElementById('schedule-container').innerHTML = '';
+            document.getElementById('slot-summary-badge').textContent = 'ใช้ 0 ช่วงสอบ';
+            document.getElementById('sets-table-body').innerHTML = '';
+            document.getElementById('algo-table-body').innerHTML = '';
+            if (network) network.destroy();
+        }
+
+        function switchTab(tabId) {
+            document.querySelectorAll('.view-panel').forEach(p => p.classList.add('hidden'));
+            document.querySelectorAll('.tab-btn').forEach(b => {
+                b.classList.remove('bg-slate-900', 'text-white');
+                b.classList.add('text-slate-600');
+            });
+            
+            document.getElementById(`view-${tabId}`).classList.remove('hidden');
+            const activeBtn = document.getElementById(`tab-${tabId}`);
+            activeBtn.classList.remove('text-slate-600', 'hover:bg-slate-100');
+            activeBtn.classList.add('bg-slate-900', 'text-white');
+            
+            if (tabId === 'graph' && network) {
+                network.fit();
+            }
+        }
+
+        function loadSlideData() {
+            // Recreating exactly the 7 subjects and their overlapping rules
+            // Clique of 5: MATH, PHYS, CHEM, PROG, ENG
+            // Extra: STAT connects to MATH and ART.
+            
+            courses = [
+                { id: 'C_MATH', code: 'MATH101', name: 'Math', students: ['Anan', 'C1', 'C2', 'C3', 'S_MS'] },
+                { id: 'C_PHYS', code: 'PHYS101', name: 'Physics', students: ['Anan', 'C4', 'C5', 'C6'] },
+                { id: 'C_CHEM', code: 'CHEM101', name: 'Chem', students: ['C1', 'C4', 'Ink', 'C7'] },
+                { id: 'C_PROG', code: 'PROG101', name: 'Prog', students: ['C2', 'C5', 'Ink', 'C8'] },
+                { id: 'C_ENG',  code: 'ENG101',  name: 'Eng', students: ['C3', 'C6', 'C7', 'C8'] },
+                { id: 'C_STAT', code: 'STAT101', name: 'Stat', students: ['S_MS', 'Lek', 'Mali'] },
+                { id: 'C_ART',  code: 'ART101',  name: 'Art', students: ['Lek', 'Mali'] }
+            ];
+            
+            // Explaination of dummy students used to force exact degrees and intersections matching the slide:
+            // Anan: MATH & PHYS
+            // Ink: CHEM & PROG
+            // Lek, Mali: STAT & ART
+            // S_MS: MATH & STAT
+            // C1 to C8: Ensure the 5-clique is fully connected without connecting to STAT or ART.
+
+            document.getElementById('algo-select').value = 'welsh-powell';
+            switchTab('graph'); // Show graph to impress
+            runEngine();
+        }
+
+        // Initialize empty state
+        runEngine();
+
+    </script>
+</body>
+</html>
