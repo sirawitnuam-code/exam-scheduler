@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Exam Scheduler</title>
+<style>
+/* วางในช่อง CSS ของ CodePen */
+:root {
+  --bg: #f4f6fb;
+  --card: #ffffff;
+  --ink: #1f2430;
+  --muted: #6b7280;
+  --line: #e3e7ef;
+  --accent: #4f46e5;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "Sarabun", "Noto Sans Thai", system-ui, -apple-system, "Segoe UI", sans-serif;
+  line-height: 1.5;
+}
+.app { max-width: 1000px; margin: 0 auto; padding: 24px 16px 48px; }
+header h1 { margin: 0; font-size: 28px; }
+header p { margin: 4px 0 20px; color: var(--muted); }
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 18px;
+  margin-bottom: 16px;
+}
+.card h2 { margin: 0 0 8px; font-size: 18px; }
+.hint { margin: 0 0 10px; color: var(--muted); font-size: 14px; }
+code { background: #eef0f7; padding: 1px 6px; border-radius: 5px; }
+
+textarea {
+  width: 100%;
+  font: 14px/1.5 ui-monospace, Menlo, Consolas, monospace;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  resize: vertical;
+}
+.bar { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+button, select {
+  font: inherit;
+  padding: 8px 14px;
+  border-radius: 9px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+select { background: #fff; color: var(--ink); border-color: var(--line); }
+button.ghost { background: #fff; color: var(--accent); }
+button:hover { filter: brightness(1.07); }
+
+.errors {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: #fff1f2;
+  color: #b42318;
+  border-radius: 9px;
+  font-size: 14px;
+}
+
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+.stat { background: #f7f8fd; border: 1px solid var(--line); border-radius: 10px; padding: 10px; text-align: center; }
+.stat b { display: block; font-size: 26px; color: var(--accent); }
+.stat span { font-size: 13px; color: var(--muted); }
+.verdict { margin: 12px 0 0; font-size: 15px; }
+
+.grid { display: grid; grid-template-columns: 1.1fr 1fr; gap: 16px; }
+@media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+
+#graph { width: 100%; height: auto; max-height: 480px; }
+.edge { stroke: #9aa3b5; stroke-width: 2; }
+.edge:hover { stroke: var(--accent); stroke-width: 4; }
+.node { stroke: #1f2430; stroke-width: 1.5; }
+.nlabel { text-anchor: middle; font-size: 11px; font-weight: 700; fill: #1f2430; }
+.nslot { text-anchor: middle; font-size: 9px; fill: #1f2430; }
+
+.slot { border-left: 6px solid; background: #fafbff; border-radius: 8px; padding: 8px 12px; margin-bottom: 8px; }
+.slot-h { font-weight: 700; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+.dot { width: 12px; height: 12px; border-radius: 50%; border: 1px solid #1f2430; display: inline-block; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { background: #fff; border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; font-size: 14px; }
+.chip small { color: var(--muted); }
+
+.scroll { overflow-x: auto; }
+.mx { border-collapse: collapse; font-size: 13px; }
+.mx th, .mx td { border: 1px solid var(--line); padding: 5px 9px; text-align: center; }
+.mx thead th, .mx tbody th { background: #f1f3fa; font-weight: 600; }
+.mx td.hit { background: #fde68a; font-weight: 700; }
+.mx td.diag { background: #e5e7eb; color: var(--muted); }
+
+.math ul { margin: 0; padding-left: 20px; }
+.math li { margin-bottom: 6px; }
+
+</style>
+</head>
+<body>
+<!-- วางในช่อง HTML ของ CodePen (ไม่ต้องใส่ <html> <head> <body>) -->
+<div class="app">
+  <header>
+    <h1>📅 Exam Scheduler</h1>
+    <p>จัดตารางสอบไม่ชนด้วย <b>Graph Coloring</b> และ <b>Sets</b> · Engineering Mathematics</p>
+  </header>
+
+  <section class="card">
+    <h2>1. ป้อนข้อมูลวิชาและรายชื่อนักศึกษา</h2>
+    <p class="hint">รูปแบบ: <code>ชื่อวิชา: นักศึกษา1, นักศึกษา2, ...</code> (หนึ่งวิชาต่อหนึ่งบรรทัด)</p>
+    <textarea id="input" rows="8" spellcheck="false"></textarea>
+    <div class="bar">
+      <select id="algo">
+        <option value="wp">Welsh–Powell</option>
+        <option value="dsatur">DSATUR</option>
+      </select>
+      <button id="run">จัดตาราง</button>
+      <button id="sample" class="ghost">ตัวอย่างข้อมูล</button>
+      <button id="clear" class="ghost">ล้าง</button>
+    </div>
+    <div id="errors" class="errors" hidden></div>
+  </section>
+
+  <section class="card">
+    <h2>2. ผลลัพธ์</h2>
+    <div id="stats" class="stats"></div>
+    <p id="verdict" class="verdict"></p>
+  </section>
+
+  <div class="grid">
+    <section class="card">
+      <h2>กราฟความขัดแย้ง</h2>
+      <p class="hint">โหนด = วิชา · เส้น = มีนักศึกษาร่วมกัน · สี = ช่วงสอบ (วางเมาส์บนเส้นเพื่อดูรายชื่อ)</p>
+      <svg id="graph" viewBox="0 0 480 480" role="img" aria-label="conflict graph"></svg>
+    </section>
+    <section class="card">
+      <h2>ตารางสอบ</h2>
+      <div id="schedule"></div>
+    </section>
+  </div>
+
+  <section class="card">
+    <h2>เมทริกซ์ขนาดของเซตตัดกัน |Cᵢ ∩ Cⱼ|</h2>
+    <p class="hint">ตัวเลขในช่อง = จำนวนนักศึกษาที่ลงทะเบียนทั้งสองวิชา (เส้นทแยง = จำนวนนักศึกษาของวิชานั้น)</p>
+    <div id="matrix" class="scroll"></div>
+  </section>
+
+  <section class="card math">
+    <h2>คณิตศาสตร์เบื้องหลัง</h2>
+    <ul>
+      <li><b>Sets:</b> วิชา Cᵢ คือเซตของนักศึกษา วิชา i และ j สอบเวลาเดียวกันไม่ได้เมื่อ Cᵢ ∩ Cⱼ ≠ ∅</li>
+      <li><b>Graph:</b> G = (V, E) โดย V = วิชา และ (i, j) ∈ E ⇔ Cᵢ ∩ Cⱼ ≠ ∅</li>
+      <li><b>Graph Coloring:</b> ฟังก์ชัน f : V → {1, …, k} ที่ f(i) ≠ f(j) ทุกเส้น (i, j) ∈ E ค่า k น้อยที่สุดคือ χ(G)</li>
+      <li><b>ขอบเขต:</b> ω(G) ≤ χ(G) ≤ Δ(G) + 1 เมื่อ ω คือขนาด clique ใหญ่ที่สุด และ Δ คือดีกรีสูงสุด</li>
+    </ul>
+  </section>
+</div>
+
+<script>
+/* ============================================================
+   Exam Scheduler — Graph Coloring + Sets
+   วางไฟล์นี้ในช่อง JS ของ CodePen
+   ============================================================ */
+
+const SAMPLE = `MATH101: Anan, Bella, Chai, Dao, Eak
+PHYS101: Anan, Fon, Gun, Hana
+CHEM101: Bella, Fon, Ink, Jay
+PROG101: Chai, Gun, Ink, Kim
+ENG101: Dao, Hana, Jay, Kim
+STAT101: Eak, Lek, Mali
+ART101: Lek, Mali, Nop`;
+
+/* ---------- 1) Sets: อ่านข้อมูลเป็นเซตของนักศึกษา ---------- */
+function parseInput(text) {
+  const courses = [];
+  const errors = [];
+  text.split("\n").forEach((raw, i) => {
+    const line = raw.trim();
+    if (!line) return;
+    const idx = line.indexOf(":");
+    if (idx < 1) {
+      errors.push(`บรรทัด ${i + 1}: ต้องอยู่ในรูป วิชา: นักศึกษา1, นักศึกษา2`);
+      return;
+    }
+    const name = line.slice(0, idx).trim();
+    const students = new Set(
+      line.slice(idx + 1).split(",").map(s => s.trim()).filter(Boolean)
+    );
+    if (courses.some(c => c.name === name)) {
+      errors.push(`บรรทัด ${i + 1}: ชื่อวิชา "${name}" ซ้ำ`);
+      return;
+    }
+    courses.push({ name, students });
+  });
+  return { courses, errors };
+}
+
+function intersection(a, b) {
+  return [...a].filter(x => b.has(x));
+}
+
+/* ---------- 2) Graph: วิชา = โหนด, มีนักศึกษาร่วมกัน = เส้นเชื่อม ---------- */
+function buildGraph(courses) {
+  const n = courses.length;
+  const adj = Array.from({ length: n }, () => new Set());
+  const edges = [];
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      const shared = intersection(courses[i].students, courses[j].students);
+      if (shared.length > 0) {
+        adj[i].add(j);
+        adj[j].add(i);
+        edges.push({ a: i, b: j, shared });
+      }
+    }
+  }
+  return { n, adj, edges };
+}
+
+/* ---------- 3) Graph Coloring ---------- */
+function smallestFree(v, adj, color) {
+  const used = new Set([...adj[v]].map(u => color[u]).filter(c => c >= 0));
+  let c = 0;
+  while (used.has(c)) c++;
+  return c;
+}
+
+// Welsh–Powell: เรียงตามดีกรีมาก→น้อย แล้วใส่สีที่เล็กที่สุดที่ไม่ชนเพื่อนบ้าน
+function welshPowell(n, adj) {
+  const order = [...Array(n).keys()].sort(
+    (a, b) => adj[b].size - adj[a].size || a - b
+  );
+  const color = Array(n).fill(-1);
+  order.forEach(v => { color[v] = smallestFree(v, adj, color); });
+  return { color, order };
+}
+
+// DSATUR: เลือกโหนดที่ "เพื่อนบ้านใช้สีต่างกันมากที่สุด" ก่อน
+function dsatur(n, adj) {
+  const color = Array(n).fill(-1);
+  const order = [];
+  for (let step = 0; step < n; step++) {
+    let best = -1, bestSat = -1, bestDeg = -1;
+    for (let v = 0; v < n; v++) {
+      if (color[v] >= 0) continue;
+      const sat = new Set([...adj[v]].map(u => color[u]).filter(c => c >= 0)).size;
+      const deg = adj[v].size;
+      if (sat > bestSat || (sat === bestSat && deg > bestDeg)) {
+        best = v; bestSat = sat; bestDeg = deg;
+      }
+    }
+    color[best] = smallestFree(best, adj, color);
+    order.push(best);
+  }
+  return { color, order };
+}
+
+/* ---------- 4) ขอบเขตของจำนวนสีที่น้อยที่สุด χ(G) ---------- */
+// ω(G) ≤ χ(G) ≤ Δ(G)+1  โดย ω = ขนาด clique ที่ใหญ่ที่สุด
+function maxCliqueSize(n, adj) {
+  if (n === 0) return 0;
+  if (n > 30) return null; // กันค้างเมื่อข้อมูลใหญ่
+  let best = 0;
+  function bk(R, P, X) {
+    if (P.length === 0 && X.length === 0) { best = Math.max(best, R.length); return; }
+    if (R.length + P.length <= best) return;
+    for (const v of [...P]) {
+      const nb = adj[v];
+      bk([...R, v], P.filter(u => nb.has(u)), X.filter(u => nb.has(u)));
+      P = P.filter(u => u !== v);
+      X = [...X, v];
+    }
+  }
+  bk([], [...Array(n).keys()], []);
+  return best;
+}
+
+function maxDegree(n, adj) {
+  let d = 0;
+  for (let i = 0; i < n; i++) d = Math.max(d, adj[i].size);
+  return d;
+}
+
+function isProperColoring(edges, color) {
+  return edges.every(e => color[e.a] !== color[e.b]);
+}
+
+function solve(text, algo) {
+  const { courses, errors } = parseInput(text);
+  if (errors.length || courses.length === 0) return { courses, errors };
+  const g = buildGraph(courses);
+  const res = algo === "dsatur" ? dsatur(g.n, g.adj) : welshPowell(g.n, g.adj);
+  const slots = Math.max(...res.color) + 1;
+  return {
+    courses, errors, ...g, ...res, slots,
+    omega: maxCliqueSize(g.n, g.adj),
+    delta: maxDegree(g.n, g.adj),
+    valid: isProperColoring(g.edges, res.color)
+  };
+}
+
+/* ============================================================
+   ส่วนแสดงผล (ทำงานเฉพาะในเบราว์เซอร์)
+   ============================================================ */
+if (typeof document !== "undefined") {
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s).replace(/[&<>"']/g, ch =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+
+  const PALETTE = ["#ff8fa3", "#ffd166", "#6ee7b7", "#7dd3fc", "#c4b5fd",
+                   "#fdba74", "#a7f3d0", "#f9a8d4", "#bef264", "#93c5fd"];
+  const colorOf = i => i < PALETTE.length ? PALETTE[i] : `hsl(${(i * 47) % 360} 70% 75%)`;
+
+  function render() {
+    const r = solve($("input").value, $("algo").value);
+
+    const errBox = $("errors");
+    if (r.errors.length) {
+      errBox.hidden = false;
+      errBox.innerHTML = r.errors.map(esc).join("<br>");
+    } else errBox.hidden = true;
+
+    if (r.errors.length || r.courses.length === 0) {
+      ["stats", "schedule", "matrix"].forEach(id => $(id).innerHTML = "");
+      $("graph").innerHTML = "";
+      $("verdict").textContent = "";
+      return;
+    }
+
+    /* สถิติ */
+    const lower = r.omega === null ? "–" : r.omega;
+    $("stats").innerHTML = [
+      ["วิชา |V|", r.n],
+      ["คู่ที่ชนกัน |E|", r.edges.length],
+      ["ช่วงสอบที่ใช้", r.slots],
+      ["ขอบล่าง ω(G)", lower],
+      ["ขอบบน Δ+1", r.delta + 1]
+    ].map(([k, v]) => `<div class="stat"><b>${v}</b><span>${k}</span></div>`).join("");
+
+    const optimal = r.omega !== null && r.slots === r.omega;
+    $("verdict").innerHTML =
+      (r.valid ? "✔ ตรวจแล้ว: ไม่มีวิชาที่มีนักศึกษาร่วมกันอยู่ช่วงสอบเดียวกัน"
+               : "✘ พบวิชาชนกัน (ผิดพลาด)") +
+      (optimal ? ` · ใช้ ${r.slots} ช่วง = ω(G) จึง <b>เหมาะสมที่สุด</b> (χ(G) = ${r.slots})`
+               : r.omega !== null ? ` · ω(G)=${r.omega} ≤ χ(G) ≤ ${r.slots}` : "");
+
+    drawGraph(r);
+    drawSchedule(r);
+    drawMatrix(r);
+  }
+
+  function drawGraph(r) {
+    const W = 480, cx = W / 2, cy = W / 2, R = 180;
+    const pos = r.courses.map((_, i) => {
+      const t = (2 * Math.PI * i) / r.n - Math.PI / 2;
+      return [cx + R * Math.cos(t), cy + R * Math.sin(t)];
+    });
+    let s = "";
+    r.edges.forEach(e => {
+      const [x1, y1] = pos[e.a], [x2, y2] = pos[e.b];
+      s += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="edge">
+              <title>${esc(r.courses[e.a].name)} ∩ ${esc(r.courses[e.b].name)} = {${e.shared.map(esc).join(", ")}}</title></line>`;
+    });
+    r.courses.forEach((c, i) => {
+      const [x, y] = pos[i];
+      s += `<g><circle cx="${x}" cy="${y}" r="27" fill="${colorOf(r.color[i])}" class="node"/>
+            <text x="${x}" y="${y - 2}" class="nlabel">${esc(c.name.slice(0, 8))}</text>
+            <text x="${x}" y="${y + 11}" class="nslot">ช่วง ${r.color[i] + 1}</text></g>`;
+    });
+    $("graph").innerHTML = s;
+  }
+
+  function drawSchedule(r) {
+    let h = "";
+    for (let k = 0; k < r.slots; k++) {
+      const idx = r.courses.map((_, i) => i).filter(i => r.color[i] === k);
+      h += `<div class="slot" style="border-left-color:${colorOf(k)}">
+              <div class="slot-h"><span class="dot" style="background:${colorOf(k)}"></span>ช่วงสอบที่ ${k + 1}</div>
+              <div class="chips">${idx.map(i =>
+                `<span class="chip">${esc(r.courses[i].name)} <small>(${r.courses[i].students.size} คน)</small></span>`).join("")}</div>
+            </div>`;
+    }
+    $("schedule").innerHTML = h;
+  }
+
+  function drawMatrix(r) {
+    let h = `<table class="mx"><thead><tr><th></th>${r.courses.map(c => `<th>${esc(c.name.slice(0, 6))}</th>`).join("")}</tr></thead><tbody>`;
+    r.courses.forEach((a, i) => {
+      h += `<tr><th>${esc(a.name.slice(0, 6))}</th>`;
+      r.courses.forEach((b, j) => {
+        if (i === j) { h += `<td class="diag">${a.students.size}</td>`; return; }
+        const n = intersection(a.students, b.students).length;
+        h += `<td class="${n ? "hit" : ""}">${n || ""}</td>`;
+      });
+      h += "</tr>";
+    });
+    $("matrix").innerHTML = h + "</tbody></table>";
+  }
+
+  $("run").addEventListener("click", render);
+  $("sample").addEventListener("click", () => { $("input").value = SAMPLE; render(); });
+  $("clear").addEventListener("click", () => { $("input").value = ""; render(); });
+  $("algo").addEventListener("change", render);
+  $("input").addEventListener("input", render);
+
+  $("input").value = SAMPLE;
+  render();
+}
+
+if (typeof module !== "undefined") {
+  module.exports = { SAMPLE, solve, parseInput, buildGraph, welshPowell, dsatur, maxCliqueSize, isProperColoring };
+}
+
+</script>
+</body>
+</html>
